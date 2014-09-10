@@ -1,0 +1,117 @@
+---
+title: "Practical Machine Learning Course Project Report"
+author: "Johannes Bjerva"
+date: "10 Sep 2014"
+output: 
+  html_document:
+    toc: yes
+---
+
+### Preparations
+* Load packages
+* Set seed
+
+```{r prep, eval=F}
+# Preparations
+library(caret)
+set.seed(2321)
+```
+
+### Load data
+* Load training and testing data
+* Shuffle the training set, in case there's an ordering in the training set which might affect results. For instance, if the training set was to contain every instance of a certain class as the last 20% of the variables, an 80/20 split would lead to 0 observed instances of that class in the training set.
+* Remove near zero covariates and those with more than 90% missing values
+
+```{r data, eval = F}
+# Load data sets
+training_data = read.csv("./pml-training.csv", header = TRUE)
+training_set <- training_data[, 6:dim(training_data)[2]]
+
+testing_data = read.csv("./pml-testing.csv", header = TRUE)
+testing_set <- testing_data[, 6:dim(testing_data)[2]]
+
+# Shuffle training set, in case there's some sort of ordering which might affect our results
+training_set <- training_set[sample(nrow(training_set)),]
+
+# Create filters, based on removing near zero vars and vars with a large quantity
+# of NA values. Filter the training set.
+limit <- dim(training_set)[1] * 0.90
+accepted <- !apply(training_set, 2, function(n) sum(is.na(n)) > limit)
+training_set <- training_set[, accepted]
+rejected <- nearZeroVar(training_set, saveMetrics = TRUE)
+training_set <- training_set[, rejected$nzv==FALSE]
+```
+
+* Create factor variable in training
+
+```{r fac, eval = F}
+# Create factor variable
+training_set$classe = factor(training_set$classe)
+```
+
+### Partition data
+* Partition the training data into a training set and a held-out cross-validation set.
+
+```{r part, eval = F}
+# Partition into training/xval, 80% / 20% split
+inTrain <- createDataPartition(training_set$classe, p = 0.8)[[1]]
+xval_set <- training_set[-inTrain,]
+training_set <- training_set[inTrain,]
+```
+
+### Filter test
+* Filter the test data in the same manner as training data
+```{r filter, eval = F}
+# Filter testing set
+testing_set <- testing_set[, accepted]
+testing_set <- testing_set[, rejected$nzv==FALSE]
+testing_set$classe <- NA
+```
+
+### Training
+* Train on the training set, using a random forest classifier with 8 trees. Since there does not appear to be any particularly strong predictors correlating with classe, a linear model most likely won't work well. Random Forests ought to be a good choice, since they're resistant to overfitting, and deal well with a relatively large number of weak features (Breiman, 2001).
+* We end up with a quite small model consisting of only 8 trees, using 27 variables at every split. Better results could be obtained through using more trees, and fewer variables at every split (2-3 variables per split is recommended by Breiman (2001)).
+
+```{r train, eval=F}
+# Train model, using a random forest of 8 trees
+model <- train(classe ~.,data=training_set,method="rf",ntree=8)
+
+# Get predictions on held-out xval_set set
+xval_predictions <- predict(model, xval_set)
+
+# Show confusion matrix
+confusionMatrix(xval_predictions,xval_set$classe)
+```
+
+### Results
+The results show an accuracy of 99.4% on the cross-validation data.
+Considering that random forests are highly resistant to overfitting (Breiman, 2001), the out of sample error rate ought to be fairly low, assuming data is gathered in a similar manner. The OOB estimate of error rate is 2.27%, as provided by the final model.
+```{r conf_m, echo=F, message=F}
+setwd("~/git/practical-machine-learning/")
+source("pml_analysis.R")
+model$finalModel
+```
+
+### Output
+* Predict values for the test set, and print to files.
+
+This solution ends up with judging all 20 test cases correctly.
+```{r test, eval = F}
+# Predict values for test set
+test_predictions <- predict(model, testing_set)
+
+# Print predicted test values to file
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(test_predictions)
+```
+
+### References
+
+* Leo Breiman. 2001. Random forests. <i>Machine learning</i>, 45(1):5-32.
